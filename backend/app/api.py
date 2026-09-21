@@ -30,6 +30,37 @@ def _run_job_background(job_id: int) -> None:
         db.close()
 
 
+def _with_requeue_links(db: Session, job: Job) -> Job:
+    """Attach ids of jobs re-enqueued from this one (newest last)."""
+    job.requeued_to_ids = [
+        row.id
+        for row in db.query(Job.id)
+        .filter(Job.requeued_from_id == job.id)
+        .order_by(Job.id)
+        .all()
+    ]
+    return job
+
+
+def create_requeued_job(db: Session, old_job: Job, username: str) -> Job:
+    """Create a new job from a failed job's original snapshot; the old job is preserved."""
+    if old_job.status != "failed":
+        raise ValueError("仅失败作业可再次入队")
+    job = Job(
+        sample_id=old_job.sample_id,
+        sample_name=old_job.sample_name,
+        status="pending",
+        created_by=username,
+        fastq_snapshot=old_job.fastq_snapshot,
+        requeued_from_id=old_job.id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    create_job_stages(db, job.id)
+    return job
+
+
 @router.get("/health", response_model=HealthOut)
 def health():
     return HealthOut(status="ok", service="fastq-qc-pipeline")
@@ -111,7 +142,32 @@ def get_job(job_id: int, _user: dict = Depends(get_current_user), db: Session = 
     )
     if not job:
         raise HTTPException(status_code=404, detail="作业不存在")
-    return job
+    return _with_requeue_links(db, job)
+
+
+@router.post("/jobs/{job_id}/requeue", response_model=JobOut, status_code=status.HTTP_201_CREATED)
+def requeue_job(
+    job_id: int,
+    background: BackgroundTasks,
+    user: dict = Depends(require_bioops),
+    db: Session = Depends(get_db),
+):
+    old_job = db.query(Job).filter(Job.id == job_id).first()
+    if not old_job:
+        raise HTTPException(status_code=404, detail="作业不存在")
+    if old_job.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="仅失败作业可再次入队"
+        )
+    job = create_requeued_job(db, old_job, user["username"])
+    background.add_task(_run_job_background, job.id)
+    job = (
+        db.query(Job)
+        .options(joinedload(Job.stages))
+        .filter(Job.id == job.id)
+        .first()
+    )
+    return _with_requeue_links(db, job)
 
 
 @router.get("/jobs/{job_id}/stages", response_model=list[StageOut])

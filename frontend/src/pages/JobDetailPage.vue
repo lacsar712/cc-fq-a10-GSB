@@ -3,6 +3,15 @@
     <div class="row items-center q-mb-md">
       <div class="text-h5">作业详情 #{{ job?.id || '…' }}</div>
       <q-space />
+      <q-btn
+        v-if="job?.status === 'failed' && auth.role === 'bioops'"
+        color="warning"
+        icon="replay"
+        label="再次入队"
+        class="q-mr-sm"
+        :loading="requeuing"
+        @click="requeue"
+      />
       <q-btn flat icon="refresh" label="刷新" @click="load" :loading="loading" />
       <q-btn flat label="返回历史" to="/jobs" />
     </div>
@@ -11,8 +20,53 @@
       状态：{{ statusLabel(job.status) }}
       · 样例：{{ job.sample_name }}
       · 提交人：{{ job.created_by }}
+      <div v-if="job.requeued_from_id" class="q-mt-sm">
+        本单由作业
+        <router-link
+          :to="`/jobs/${job.requeued_from_id}`"
+          class="text-weight-bold"
+          style="color: inherit"
+        >
+          #{{ job.requeued_from_id }}
+        </router-link>
+        再次入队创建（沿用原快照，原单保留）
+      </div>
       <div v-if="job.error_message" class="q-mt-sm">失败原因：{{ job.error_message }}</div>
     </q-banner>
+
+    <q-card v-if="job?.status === 'failed'" flat bordered class="q-mb-lg">
+      <q-card-section>
+        <div class="text-subtitle1 q-mb-sm">再次入队台</div>
+        <div class="text-subtitle2 q-mb-xs">旧失败阶段</div>
+        <div v-for="s in failedStages" :key="s.id" class="q-mb-xs">
+          <q-badge color="negative">{{ s.actor_name }}</q-badge>
+          <span class="q-ml-sm">{{ s.message || '—' }}</span>
+        </div>
+        <div class="text-subtitle2 q-mt-md q-mb-xs">新单入口</div>
+        <div v-if="job.requeued_to_ids?.length">
+          <q-btn
+            v-for="nid in job.requeued_to_ids"
+            :key="nid"
+            dense
+            flat
+            color="primary"
+            :label="`作业 #${nid}`"
+            class="q-mr-sm"
+            :to="`/jobs/${nid}`"
+          />
+        </div>
+        <div v-else class="text-grey-6">尚未再次入队</div>
+      </q-card-section>
+      <q-card-actions v-if="auth.role === 'bioops'" align="right">
+        <q-btn
+          color="warning"
+          icon="replay"
+          label="使用原快照再次入队"
+          :loading="requeuing"
+          @click="requeue"
+        />
+      </q-card-actions>
+    </q-card>
 
     <div class="text-subtitle1 q-mb-sm">Actor 阶段时间线</div>
     <q-timeline color="primary" class="q-mb-lg">
@@ -66,18 +120,24 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
-import { getJob, getJobStages } from '../api/client'
+import { getJob, getJobStages, requeueJob } from '../api/client'
+import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const $q = useQuasar()
 const loading = ref(false)
+const requeuing = ref(false)
 const job = ref(null)
 const stages = ref([])
 let timer = null
 
 const metrics = computed(() => job.value?.metrics || null)
+
+const failedStages = computed(() => stages.value.filter((s) => s.status === 'failed'))
 
 const metricCards = computed(() => {
   const m = metrics.value
@@ -155,6 +215,30 @@ async function load() {
     $q.notify({ type: 'negative', message: e.message || '加载失败' })
   } finally {
     loading.value = false
+  }
+}
+
+async function requeue() {
+  if (!job.value) return
+  requeuing.value = true
+  try {
+    const newJob = await requeueJob(job.value.id)
+    $q.notify({
+      type: 'positive',
+      message: `已按原快照再次入队：新作业 #${newJob.id}（原单保留）`,
+      actions: [
+        {
+          label: '前往新单',
+          color: 'white',
+          handler: () => router.push(`/jobs/${newJob.id}`),
+        },
+      ],
+    })
+    await load()
+  } catch (e) {
+    $q.notify({ type: 'negative', message: e.message || '再次入队失败' })
+  } finally {
+    requeuing.value = false
   }
 }
 

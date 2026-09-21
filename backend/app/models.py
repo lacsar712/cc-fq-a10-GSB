@@ -28,6 +28,9 @@ class Job(Base):
     metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     fastq_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+    requeued_from_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

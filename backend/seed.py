@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlalchemy.exc import OperationalError
 
-from app.database import Base, SessionLocal, engine
+from app.database import Base, SessionLocal, engine, ensure_schema
 from app.models import Sample
 
 
@@ -28,6 +28,7 @@ def wait_for_db(retries: int = 30, delay: float = 1.0) -> None:
 def seed() -> None:
     wait_for_db()
     Base.metadata.create_all(bind=engine)
+    ensure_schema()
     db = SessionLocal()
     try:
         if db.query(Sample).count() > 0:

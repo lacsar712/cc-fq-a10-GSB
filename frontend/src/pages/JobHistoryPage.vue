@@ -23,6 +23,14 @@
       hide-pagination
       :pagination="{ rowsPerPage: 0 }"
     >
+      <template #body-cell-sample_name="props">
+        <q-td :props="props">
+          {{ props.row.sample_name }}
+          <q-badge v-if="props.row.requeued_from_id" color="grey-6" class="q-ml-xs">
+            重入队自 #{{ props.row.requeued_from_id }}
+          </q-badge>
+        </q-td>
+      </template>
       <template #body-cell-status="props">
         <q-td :props="props">
           <q-badge :color="statusColor(props.row.status)">
@@ -43,6 +51,16 @@
       <template #body-cell-actions="props">
         <q-td :props="props">
           <q-btn dense flat color="primary" label="详情" :to="`/jobs/${props.row.id}`" />
+          <q-btn
+            v-if="props.row.status === 'failed' && auth.role === 'bioops'"
+            dense
+            flat
+            color="warning"
+            icon="replay"
+            label="再次入队"
+            :loading="requeuingId === props.row.id"
+            @click="requeue(props.row)"
+          />
         </q-td>
       </template>
     </q-table>
@@ -52,12 +70,13 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { listJobs } from '../api/client'
+import { listJobs, requeueJob } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const $q = useQuasar()
 const loading = ref(false)
+const requeuingId = ref(null)
 const rows = ref([])
 
 const columns = [
@@ -92,6 +111,22 @@ async function load() {
     $q.notify({ type: 'negative', message: e.message || '加载失败' })
   } finally {
     loading.value = false
+  }
+}
+
+async function requeue(row) {
+  requeuingId.value = row.id
+  try {
+    const newJob = await requeueJob(row.id)
+    $q.notify({
+      type: 'positive',
+      message: `已按原快照再次入队：新作业 #${newJob.id}（原单 #${row.id} 保留）`,
+    })
+    await load()
+  } catch (e) {
+    $q.notify({ type: 'negative', message: e.message || '再次入队失败' })
+  } finally {
+    requeuingId.value = null
   }
 }
 

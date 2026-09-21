@@ -1,6 +1,6 @@
 # FASTQ 质控流水线台（FASTQ QC Pipeline Console）
 
-从零实现的全栈演示：上传/选择小型 FASTQ → **Actor 队列流水线**质控 → 查看阶段状态与指标。
+从零实现的全栈演示：上传/选择小型 FASTQ → **Actor 队列流水线**质控 → 查看阶段状态与指标。失败作业可**保留原单再次入队**（沿用原快照新建作业）。
 
 ## 技术栈
 
@@ -23,8 +23,8 @@
 
 | 用户 | 密码 | 权限 |
 |------|------|------|
-| `bioops` | `fastq123456` | 可提交质控作业 |
-| `auditor` | `audit123456` | 只读结果，不可提交 |
+| `bioops` | `fastq123456` | 可提交质控作业、可对失败单再次入队 |
+| `auditor` | `audit123456` | 只读结果，不可提交、无再次入队入口 |
 
 ## 一键启动
 
@@ -46,8 +46,9 @@ docker compose up --build
 2. **样例库** 看到 2 条样例 → 选合格样例 **提交质控作业**。
 3. 作业详情页看到四个 Actor 阶段均为成功，指标卡出现 `reads` / `mean_quality` / `n_rate`。
 4. 再跑损坏样例：`ParseActor` = failed，其余 = skipped。
-5. 退出，用 `auditor` / `audit123456` 登录：可看历史与详情，提交作业接口返回 403 / 前端无提交入口。
-6. 健康检查：`curl http://localhost:8184/api/health`
+5. **失败单再次入队**：在失败单详情页（或历史页行内）点「再次入队」→ 用原快照新建作业、旧单保留；详情页「再次入队台」展示旧失败阶段与新单入口；损坏样例再次入队仍失败且仍归因 `ParseActor`；历史列表多一条新失败单（带「重入队自 #N」标记）。
+6. 退出，用 `auditor` / `audit123456` 登录：可看历史与详情（含旧失败阶段与新单入口），提交作业与再次入队接口均返回 403 / 前端无入口。
+7. 健康检查：`curl http://localhost:8184/api/health`
 
 ## API
 
@@ -55,6 +56,7 @@ docker compose up --build
 - `GET  /api/health`
 - `GET  /api/samples`
 - `POST /api/jobs` `{ "sampleId": 1 }` 或 `{ "fastqText": "..." }`
+- `POST /api/jobs/{id}/requeue`（仅 bioops、仅 failed 单；409 非失败单 / 403 审计员）
 - `GET  /api/jobs`
 - `GET  /api/jobs/{id}`
 - `GET  /api/jobs/{id}/stages`
@@ -67,7 +69,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-覆盖：畸形 FASTQ 在 `ParseActor` 失败；正常样例产出 `mean_quality`。
+覆盖：畸形 FASTQ 在 `ParseActor` 失败；正常样例产出 `mean_quality`；失败单再次入队后历史多一条新失败单、损坏样例重入队仍失败且归因同一 Actor、审计员 403、非失败单 409。
 
 ## 目录结构
 

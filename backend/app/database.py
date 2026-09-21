@@ -12,6 +12,16 @@ class Base(DeclarativeBase):
     pass
 
 
+def ensure_schema() -> None:
+    """Additive migrations for existing dev volumes (create_all only handles fresh DBs)."""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS requeued_from_id INTEGER"
+        )
+
+
 def get_db():
     db = SessionLocal()
     try:

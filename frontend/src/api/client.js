@@ -62,4 +62,9 @@ export async function createJob(body) {
   return data
 }
 
+export async function requeueJob(id) {
+  const { data } = await api.post(`/jobs/${id}/requeue`)
+  return data
+}
+
 export default api

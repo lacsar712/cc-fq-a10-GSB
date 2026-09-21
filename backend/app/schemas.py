@@ -53,6 +53,8 @@ class JobOut(BaseModel):
     created_by: str
     metrics: dict[str, Any] | None
     error_message: str | None
+    requeued_from_id: int | None = None
+    requeued_to_ids: list[int] = []
     created_at: datetime
     finished_at: datetime | None
     stages: list[StageOut] = []
@@ -68,6 +70,7 @@ class JobListItem(BaseModel):
     created_by: str
     metrics: dict[str, Any] | None
     error_message: str | None
+    requeued_from_id: int | None = None
     created_at: datetime
     finished_at: datetime | None
 
