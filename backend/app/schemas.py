@@ -53,6 +53,8 @@ class JobOut(BaseModel):
     created_by: str
     metrics: dict[str, Any] | None
     error_message: str | None
+    retry_of_job_id: int | None = None
+    retry_job_ids: list[int] = []
     created_at: datetime
     finished_at: datetime | None
     stages: list[StageOut] = []
@@ -68,6 +70,7 @@ class JobListItem(BaseModel):
     created_by: str
     metrics: dict[str, Any] | None
     error_message: str | None
+    retry_of_job_id: int | None = None
     created_at: datetime
     finished_at: datetime | None
 

@@ -3,6 +3,15 @@
     <div class="row items-center q-mb-md">
       <div class="text-h5">作业详情 #{{ job?.id || '…' }}</div>
       <q-space />
+      <q-btn
+        v-if="auth.role === 'bioops' && job?.status === 'failed'"
+        color="warning"
+        icon="replay"
+        label="再次入队"
+        class="q-mr-sm"
+        :loading="retrying"
+        @click="retry"
+      />
       <q-btn flat icon="refresh" label="刷新" @click="load" :loading="loading" />
       <q-btn flat label="返回历史" to="/jobs" />
     </div>
@@ -13,6 +22,55 @@
       · 提交人：{{ job.created_by }}
       <div v-if="job.error_message" class="q-mt-sm">失败原因：{{ job.error_message }}</div>
     </q-banner>
+
+    <q-banner v-if="job?.retry_of_job_id" rounded class="q-mb-md bg-blue-grey-1 text-dark">
+      本单由失败作业 #{{ job.retry_of_job_id }} 再次入队产生（沿用原快照重跑，原单保留）。
+      <q-btn
+        flat
+        dense
+        color="primary"
+        :label="`查看原单 #${job.retry_of_job_id}`"
+        :to="`/jobs/${job.retry_of_job_id}`"
+      />
+    </q-banner>
+
+    <q-card
+      v-if="job && ((auth.role === 'bioops' && job.status === 'failed') || job.retry_job_ids?.length)"
+      flat
+      bordered
+      class="q-mb-md"
+    >
+      <q-card-section class="row items-center q-pb-sm">
+        <div>
+          <div class="text-subtitle1">再次入队</div>
+          <div class="text-caption text-grey-7">
+            用原快照新建作业重跑，旧单保留；损坏样例将再次失败并归因同类。
+          </div>
+        </div>
+        <q-space />
+        <q-btn
+          v-if="auth.role === 'bioops' && job.status === 'failed'"
+          color="warning"
+          icon="replay"
+          label="再次入队"
+          :loading="retrying"
+          @click="retry"
+        />
+      </q-card-section>
+      <q-card-section v-if="job.retry_job_ids?.length" class="q-pt-none">
+        <div class="text-caption text-grey-7 q-mb-xs">由本单再次入队产生的新作业：</div>
+        <q-btn
+          v-for="rid in job.retry_job_ids"
+          :key="rid"
+          dense
+          outline
+          color="primary"
+          class="q-mr-sm q-mb-xs"
+          :label="`新作业 #${rid}`"
+          :to="`/jobs/${rid}`"
+        />
+      </q-card-section>
+    </q-card>
 
     <div class="text-subtitle1 q-mb-sm">Actor 阶段时间线</div>
     <q-timeline color="primary" class="q-mb-lg">
@@ -68,11 +126,14 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useQuasar } from 'quasar'
-import { getJob, getJobStages } from '../api/client'
+import { getJob, getJobStages, retryJob } from '../api/client'
+import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
 const $q = useQuasar()
+const auth = useAuthStore()
 const loading = ref(false)
+const retrying = ref(false)
 const job = ref(null)
 const stages = ref([])
 let timer = null
@@ -155,6 +216,19 @@ async function load() {
     $q.notify({ type: 'negative', message: e.message || '加载失败' })
   } finally {
     loading.value = false
+  }
+}
+
+async function retry() {
+  retrying.value = true
+  try {
+    const fresh = await retryJob(route.params.id)
+    $q.notify({ type: 'positive', message: `已再次入队：新作业 #${fresh.id}（旧单保留）` })
+    await load()
+  } catch (e) {
+    $q.notify({ type: 'negative', message: e.message || '再次入队失败' })
+  } finally {
+    retrying.value = false
   }
 }
 

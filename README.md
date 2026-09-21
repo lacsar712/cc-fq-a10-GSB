@@ -46,8 +46,9 @@ docker compose up --build
 2. **样例库** 看到 2 条样例 → 选合格样例 **提交质控作业**。
 3. 作业详情页看到四个 Actor 阶段均为成功，指标卡出现 `reads` / `mean_quality` / `n_rate`。
 4. 再跑损坏样例：`ParseActor` = failed，其余 = skipped。
-5. 退出，用 `auditor` / `audit123456` 登录：可看历史与详情，提交作业接口返回 403 / 前端无提交入口。
-6. 健康检查：`curl http://localhost:8184/api/health`
+5. **失败单再次入队**：在失败作业详情页（或历史页失败行）点 **再次入队** → 用原快照新建作业重跑，旧单保留；历史列表多一条新失败单（标注"重试自 #旧单号"），旧单详情页出现新单入口；损坏样例的新单仍失败于 `ParseActor`（归因同类）。
+6. 退出，用 `auditor` / `audit123456` 登录：可看历史与详情，提交作业与再次入队接口返回 403 / 前端无提交与再次入队入口。
+7. 健康检查：`curl http://localhost:8184/api/health`
 
 ## API
 
@@ -56,6 +57,7 @@ docker compose up --build
 - `GET  /api/samples`
 - `POST /api/jobs` `{ "sampleId": 1 }` 或 `{ "fastqText": "..." }`
 - `GET  /api/jobs`
+- `POST /api/jobs/{id}/retry` （仅失败单、仅 bioops；原快照新建作业，旧单保留）
 - `GET  /api/jobs/{id}`
 - `GET  /api/jobs/{id}/stages`
 
@@ -67,7 +69,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-覆盖：畸形 FASTQ 在 `ParseActor` 失败；正常样例产出 `mean_quality`。
+覆盖：畸形 FASTQ 在 `ParseActor` 失败；正常样例产出 `mean_quality`；失败单再次入队（仅失败单/仅运维、原快照新建、旧单保留、损坏样例再入队仍失败且归因同类）。
 
 ## 目录结构
 
@@ -83,7 +85,7 @@ pytest -q
     app/
       main.py api.py auth.py models.py schemas.py
       pipeline/{actors,runner}.py
-    tests/test_actors.py
+    tests/{conftest,test_actors,test_retry}.py
   frontend/
     Dockerfile nginx.conf
     src/pages/{Login,Samples,JobSubmit,JobDetail,JobHistory}Page.vue

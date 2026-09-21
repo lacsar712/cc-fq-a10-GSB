@@ -101,6 +101,46 @@ def list_jobs(_user: dict = Depends(get_current_user), db: Session = Depends(get
     return db.query(Job).order_by(Job.id.desc()).all()
 
 
+@router.post("/jobs/{job_id}/retry", response_model=JobOut, status_code=status.HTTP_201_CREATED)
+def retry_job(
+    job_id: int,
+    background: BackgroundTasks,
+    user: dict = Depends(require_bioops),
+    db: Session = Depends(get_db),
+):
+    """失败单再次入队：用原快照新建作业，旧单保留不动。仅运维可点。"""
+    old = db.query(Job).filter(Job.id == job_id).first()
+    if not old:
+        raise HTTPException(status_code=404, detail="作业不存在")
+    if old.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="仅失败作业可再次入队",
+        )
+
+    job = Job(
+        sample_id=old.sample_id,
+        sample_name=old.sample_name,
+        status="pending",
+        created_by=user["username"],
+        fastq_snapshot=old.fastq_snapshot,
+        retry_of_job_id=old.id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    create_job_stages(db, job.id)
+    background.add_task(_run_job_background, job.id)
+
+    job = (
+        db.query(Job)
+        .options(joinedload(Job.stages))
+        .filter(Job.id == job.id)
+        .first()
+    )
+    return job
+
+
 @router.get("/jobs/{job_id}", response_model=JobOut)
 def get_job(job_id: int, _user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     job = (
@@ -111,6 +151,14 @@ def get_job(job_id: int, _user: dict = Depends(get_current_user), db: Session = 
     )
     if not job:
         raise HTTPException(status_code=404, detail="作业不存在")
+    # 新单入口：由本单再次入队产生的作业（旧单页上展示用）
+    job.retry_job_ids = [
+        r.id
+        for r in db.query(Job.id)
+        .filter(Job.retry_of_job_id == job_id)
+        .order_by(Job.id)
+        .all()
+    ]
     return job
 
 

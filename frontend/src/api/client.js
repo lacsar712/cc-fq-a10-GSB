@@ -62,4 +62,9 @@ export async function createJob(body) {
   return data
 }
 
+export async function retryJob(id) {
+  const { data } = await api.post(`/jobs/${id}/retry`)
+  return data
+}
+
 export default api

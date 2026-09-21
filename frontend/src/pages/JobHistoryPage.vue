@@ -23,6 +23,14 @@
       hide-pagination
       :pagination="{ rowsPerPage: 0 }"
     >
+      <template #body-cell-sample_name="props">
+        <q-td :props="props">
+          {{ props.row.sample_name }}
+          <div v-if="props.row.retry_of_job_id" class="text-caption text-grey-6">
+            重试自 #{{ props.row.retry_of_job_id }}
+          </div>
+        </q-td>
+      </template>
       <template #body-cell-status="props">
         <q-td :props="props">
           <q-badge :color="statusColor(props.row.status)">
@@ -43,6 +51,15 @@
       <template #body-cell-actions="props">
         <q-td :props="props">
           <q-btn dense flat color="primary" label="详情" :to="`/jobs/${props.row.id}`" />
+          <q-btn
+            v-if="auth.role === 'bioops' && props.row.status === 'failed'"
+            dense
+            flat
+            color="warning"
+            label="再次入队"
+            :loading="retryingId === props.row.id"
+            @click="retryRow(props.row)"
+          />
         </q-td>
       </template>
     </q-table>
@@ -52,12 +69,13 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
-import { listJobs } from '../api/client'
+import { listJobs, retryJob } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const $q = useQuasar()
 const loading = ref(false)
+const retryingId = ref(null)
 const rows = ref([])
 
 const columns = [
@@ -92,6 +110,19 @@ async function load() {
     $q.notify({ type: 'negative', message: e.message || '加载失败' })
   } finally {
     loading.value = false
+  }
+}
+
+async function retryRow(row) {
+  retryingId.value = row.id
+  try {
+    const fresh = await retryJob(row.id)
+    $q.notify({ type: 'positive', message: `已再次入队：新作业 #${fresh.id}（旧单保留）` })
+    await load()
+  } catch (e) {
+    $q.notify({ type: 'negative', message: e.message || '再次入队失败' })
+  } finally {
+    retryingId.value = null
   }
 }
 
